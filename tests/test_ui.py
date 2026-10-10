@@ -38,9 +38,28 @@ def boot():
     return at
 
 
-def login_customer(at, cid):
+PHONES = {"CUST0147": "7133006742", "cust147": "7133006742"}
+
+
+@pytest.fixture(autouse=True)
+def no_lockouts(tmp_path, monkeypatch):
+    from app import auth
+    monkeypatch.setattr(auth, "AUTH_LOG", tmp_path / "auth.jsonl")
+    auth._failures.clear()
+
+
+def login_customer(at, cid, phone=None):
     at.sidebar.radio[0].set_value("Customer").run()
     at.sidebar.text_input[0].set_value(cid)
+    at.sidebar.text_input[1].set_value(phone if phone is not None else PHONES.get(cid, "0000000000"))
+    at.sidebar.button[0].click().run()
+    return at
+
+
+def login_agent(at, username="john1234", password="password"):
+    at.sidebar.radio[0].set_value("Support agent").run()
+    at.sidebar.text_input[0].set_value(username)
+    at.sidebar.text_input[1].set_value(password)
     at.sidebar.button[0].click().run()
     return at
 
@@ -51,8 +70,19 @@ def test_welcome_screen():
 
 
 def test_unknown_customer_is_rejected():
-    at = login_customer(boot(), "CUST9999")
-    assert at.sidebar.error and "No customer with ID CUST9999" in at.sidebar.error[0].value
+    at = login_customer(boot(), "CUST9999", "9845012345")
+    assert at.sidebar.error[0].value == "Customer ID or phone number is incorrect."
+    assert "Welcome" in at.header[0].value and not at.chat_input
+
+
+def test_wrong_phone_is_rejected():
+    at = login_customer(boot(), "CUST0147", "9845012345")     # CUST0001's phone
+    assert at.sidebar.error[0].value == "Customer ID or phone number is incorrect." and not at.chat_input
+
+
+def test_agent_wrong_password_rejected():
+    at = login_agent(boot(), password="letmein")
+    assert at.sidebar.error[0].value == "Username or password is incorrect." and not at.chat_input
 
 
 def test_customer_session_chat_and_sources():
@@ -76,16 +106,15 @@ def test_new_conversation_clears_history():
     assert len(at.chat_message) == 0 and "Rakesh Mishra" in at.sidebar.markdown[0].value
 
 
-def test_switch_user_returns_to_login():
+def test_sign_out_returns_to_login():
     at = login_customer(boot(), "CUST0147")
-    at.sidebar.button[1].click().run()               # "Switch user"
+    at.sidebar.button[1].click().run()               # "Sign out"
     assert at.sidebar.radio and "Welcome" in at.header[0].value
 
 
 def test_agent_sees_sql_and_escalation_queue():
-    at = boot()
-    at.sidebar.radio[0].set_value("Support agent").run()
-    at.sidebar.button[0].click().run()
+    at = login_agent(boot())
+    assert "john1234" in at.sidebar.markdown[0].value
     assert len(at.tabs) == 2 and at.tabs[1].label == "Escalation queue"
     at.chat_input[0].set_value("Which hub has most late returns?").run()
     assert any(c.value == "SELECT 1" for c in at.code)

@@ -1,0 +1,8 @@
+# Support-agent accounts. Passwords are never stored: only a salted PBKDF2-HMAC-SHA256 hash.
+# Add an account:  python -m scripts.add_agent <username>
+# (Demo credentials for evaluation are listed in the README.)
+pbkdf2_iterations: 310000
+agents:
+  john1234:
+    salt: f460515279bbc24f95939018f8559002
+    hash: bc8971273d27f2a553f72b6c451f7e9c5acaa0163587ebcb372f2f048645da9a

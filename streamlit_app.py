@@ -12,6 +12,7 @@ import streamlit as st
 from app.agent.loop import Assistant
 from app.agent.prompts import SUPPORT_CONTACT
 from app.agent.tools import ESCALATIONS_FILE
+from app.auth import AuthError, Principal, authenticate_agent, authenticate_customer
 
 logging.basicConfig(level=logging.WARNING)
 st.set_page_config(page_title="RideWise Assist", page_icon="🛵", layout="wide")
@@ -49,17 +50,21 @@ except Exception as e:      # show a clear error instead of a stack trace
 
 # ------------------------------------------------------------------ session handling
 
-def start_session(role: str, customer_id: str | None) -> None:
+def start_session(principal: Principal) -> None:
+    """Only ever called with a Principal returned by app.auth, i.e. after a successful sign-in."""
     old = st.session_state.get("bot")
     if old:
         old.close()
-    st.session_state.bot = Assistant(role, customer_id)
+    st.session_state.principal = principal
+    st.session_state.bot = Assistant.for_principal(principal)
     st.session_state.messages = []
 
 
-def new_conversation() -> None:
-    bot: Assistant = st.session_state.bot
-    start_session(bot.session.role, bot.session.customer_id)
+def sign_out() -> None:
+    st.session_state.bot.close()
+    for key in ("bot", "principal"):
+        st.session_state.pop(key, None)
+    st.session_state.messages = []
 
 
 with st.sidebar:
@@ -67,15 +72,24 @@ with st.sidebar:
     bot: Assistant | None = st.session_state.get("bot")
 
     if bot is None:
-        st.subheader("Start a session")
+        st.subheader("Sign in")
         role_label = st.radio("I am a", ["Customer", "Support agent"], key="role_choice")
-        cid = st.text_input("Customer ID", placeholder="e.g. CUST0001", key="cid_input") \
-            if role_label == "Customer" else None
-        if st.button("Start", type="primary", width="stretch"):
+        with st.form("login", clear_on_submit=False):
+            if role_label == "Customer":
+                cid = st.text_input("Customer ID", placeholder="e.g. CUST0001", key="cid_input")
+                phone = st.text_input("Registered phone number", placeholder="10-digit mobile number",
+                                      type="password", key="phone_input")
+            else:
+                username = st.text_input("Username", key="user_input")
+                password = st.text_input("Password", type="password", key="pass_input")
+            submitted = st.form_submit_button("Sign in", type="primary", width="stretch")
+        if submitted:
             try:
-                start_session("customer" if role_label == "Customer" else "agent", cid)
+                principal = (authenticate_customer(cid, phone) if role_label == "Customer"
+                             else authenticate_agent(username, password))
+                start_session(principal)
                 st.rerun()
-            except ValueError as e:
+            except AuthError as e:
                 st.error(str(e))
     else:
         if bot.session.is_customer:
@@ -83,15 +97,13 @@ with st.sidebar:
             st.markdown(f"**{p['full_name']}**  \n`{p['customer_id']}` · {p['customer_tier'].title()} tier · "
                         f"KYC {p['kyc_status'].lower()}")
         else:
-            st.markdown("**Support agent**  \nOperational access · personal data masked")
+            st.markdown(f"**Support agent:** {bot.username}  \nOperational access · personal data masked")
         c1, c2 = st.columns(2)
         if c1.button("New conversation", width="stretch"):
-            new_conversation()
+            start_session(st.session_state.principal)
             st.rerun()
-        if c2.button("Switch user", width="stretch"):
-            bot.close()
-            del st.session_state["bot"]
-            st.session_state.messages = []
+        if c2.button("Sign out", width="stretch"):
+            sign_out()
             st.rerun()
 
     st.divider()
@@ -102,7 +114,8 @@ with st.sidebar:
 if st.session_state.get("bot") is None:
     st.header("Welcome to RideWise Assist")
     st.write("Answers about bookings, payments, charges and RideWise policies. "
-             "Start a session from the sidebar as a customer (with your customer ID) or as a support agent.")
+             "Sign in from the sidebar: customers with their customer ID and registered phone number, "
+             "support agents with their username and password.")
     st.stop()
 
 bot: Assistant = st.session_state.bot
