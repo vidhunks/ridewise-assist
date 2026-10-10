@@ -51,11 +51,15 @@ def age_on(dob: str | None, today: date) -> int | None:
     return today.year - y - ((today.month, today.day) < (m, d))
 
 
+PUBLIC_EMAIL_DOMAINS = {"ridewise.example"}   # the company's own published contact addresses
+
+
 def mask_text(text: str | None) -> str | None:
     """Mask emails, phone numbers and licence numbers inside free text."""
     if not text:
         return text
-    text = EMAIL_RE.sub(lambda m: f"{m.group(1)}***@{m.group(2)}", text)
+    text = EMAIL_RE.sub(lambda m: m.group(0) if m.group(2).lower() in PUBLIC_EMAIL_DOMAINS
+                        else f"{m.group(1)}***@{m.group(2)}", text)
     text = LICENSE_RE.sub(lambda m: mask_license(m.group(0)), text)
     text = PHONE_RE.sub(lambda m: f"{m.group(1)}XXXXXX{m.group(2)}", text)
     return text
@@ -65,4 +69,5 @@ def contains_pii(text: str | None) -> bool:
     """True if unmasked PII patterns remain (used by tests and the output guard)."""
     if not text:
         return False
-    return bool(EMAIL_RE.search(text) or PHONE_RE.search(text) or LICENSE_RE.search(text))
+    emails = [m for m in EMAIL_RE.finditer(text) if m.group(2).lower() not in PUBLIC_EMAIL_DOMAINS]
+    return bool(emails or PHONE_RE.search(text) or LICENSE_RE.search(text))
