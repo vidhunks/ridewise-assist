@@ -32,23 +32,20 @@ This document outlines the core architectural choices, rejected alternatives, cu
 * **Rejected**: Relying solely on basic text extractors (like `pypdf` or standard PDF text parsers) for policy indexing.
 * **Why**: Critical business policy tables—such as v2 cancellation refund percentage slabs, GOLD member grace period rules, and EV battery charge bands in `docs/policies/`—exist as embedded raster images and scanned figures. Standard text extractors skip these images entirely. We implemented a hybrid ingestion pipeline using **PyMuPDF** for text and **RapidOCR** for scanned table figures, indexing chunks via **BM25** (sparse) + **FastEmbed/Qdrant** (dense) merged with **Reciprocal Rank Fusion (RRF)**.
 
-### ❌ Database Mutation for Support Tickets vs. ✅ Audit-Backed Anti-Hallucination Ticket Guard
-* **Rejected**: Granting the LLM write permissions to update database tables when creating support tickets or escalating claims.
-* **Why**: Contest rules strictly prohibit database modifications. Instead, we implemented an external JSONL escalation queue (`data/escalations.jsonl`) governed by an **Anti-Hallucination Output Guard**. If the model claims to a customer that a support ticket was created, the guard verifies the ticket number. If missing or hallucinated, the guard auto-generates a real ticket entry to ensure every promise made to the user is true.
+### ❌ Human-in-the-Loop (HITL) Sandbox for Database Writes & Deletes vs. ✅ Enforced Read-Only DB Architecture
+* **Rejected**: A Human-in-the-Loop approval system allowing the LLM to propose `INSERT`, `UPDATE`, or `DELETE` SQL queries requiring human support agent authorization.
+* **Why**: We evaluated the hackathon problem statement and confirmed that database mutations are strictly forbidden (`mode=ro`). Nothing in the user stories requires database writes. Instead of building a complex write/delete approval workflow, we enforced a strict read-only database architecture (`PRAGMA query_only=ON` + AST validation) and routed all customer disputes, refund requests, and waivers to an external human escalation queue (`data/escalations.jsonl`).
 
 ---
 
 ## 3. Where does your assistant currently fail or behave poorly?
 
-1. **Run-to-Run LLM Tool Omission**: The hosted LLM (`gpt-oss-120b`) occasionally outputs plain text answers instead of invoking a tool call when multi-hop reasoning requires checking 3 or more entities in sequence.
-2. **Ambiguous Customer Disambiguation**: When an agent searches for a customer by a non-unique full name (e.g. 6 duplicate name pairs exist in the dataset like *"Anil Naidu"*), the model sometimes defaults to querying the first matching customer ID rather than proactively asking the agent to clarify with a Customer ID.
-3. **OCR Token Noise in Dense Lexical Searches**: While RapidOCR captures scanned policy tables effectively, minor character noise on low-resolution image borders can slightly degrade exact keyword matching in BM25 search (though dense vector embeddings successfully retrieve the relevant context).
+1. **Ambiguous Customer Disambiguation**: When an agent searches for a customer by a non-unique full name (e.g. 6 duplicate name pairs exist in the dataset like *"Anil Naidu"*), the model sometimes defaults to querying the first matching customer ID rather than proactively asking the agent to clarify with a Customer ID.
+2. **OCR Token Noise in Dense Lexical Searches**: While RapidOCR captures scanned policy tables effectively, minor character noise on low-resolution image borders can slightly degrade exact keyword matching in BM25 search (though dense vector embeddings successfully retrieve the relevant context).
 
 ---
 
 ## 4. What would you build next with one more week?
 
-1. **Live Asynchronous Human-in-the-Loop Escalation Center**: Expand the Streamlit UI with WebSockets / Server-Sent Events (SSE) so human support agents can claim, inspect working traces, approve refund overrides, and resolve customer tickets directly from the UI dashboard.
-2. **Semantic Query Caching Layer**: Implement a semantic cache (e.g., Redis / GPTCache) over incoming RAG and SQL queries to deliver sub-50ms responses for repeated policy inquiries and reduce token consumption.
-3. **Automated Continuous Evaluation Pipeline**: Integrate real-time tracing (LangSmith / OpenTelemetry) to log production conversations, automatically detect low-confidence or escalated responses, and convert them into ground-truth test cases for `eval/questions.yaml`.
-4. **Multi-Lingual Voice & Regional Chat Interface**: Add speech-to-text input and multi-lingual neural translation (Hindi, Kannada, Tamil) to assist ground staff at rental hubs and local customers.
+1. **Semantic Query Caching Layer**: Implement a semantic cache (e.g., Redis / GPTCache) over incoming RAG and SQL queries to deliver sub-50ms responses for repeated policy inquiries and reduce token consumption.
+2. **Multi-Lingual Voice & Regional Chat Interface**: Add speech-to-text input and multi-lingual neural translation (Hindi, Kannada, Tamil) to assist ground staff at rental hubs and local customers.
