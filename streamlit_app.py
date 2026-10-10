@@ -36,7 +36,9 @@ def prepare() -> str:
     from scripts.build_derived import ensure_built
     ensure_built()
     n = ensure_index()
-    dense_model(), sparse_model(), reranker()
+    dense_model()
+    sparse_model()
+    reranker()
     return f"{n} policy passages indexed"
 
 
