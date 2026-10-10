@@ -2,7 +2,7 @@
 
 Turn flow:
   input guard -> [system prompt + recent history + question] -> LLM <-> tools (max MAX_STEPS)
-  -> final_answer -> output guard -> AssistantResponse (sources/SQL/calculations come from the
+  -> reply text -> output guard -> AssistantResponse (sources/SQL/calculations come from the
   tool calls actually made, not from the model's claims) -> log.
 """
 from __future__ import annotations
@@ -34,10 +34,10 @@ NEEDS_HUMAN_RE = re.compile(
     r"\b(cancel|reschedul|modify|change my|extend|refund|waive|waiver|dispute|not my fault|overcharg|wrong(ly)? "
     r"charg|complain|unfair|broke ?down|breakdown|accident|crash|injur|stolen|theft|punctur|flat tyre|"
     r"ran out|died|stuck|emergency|unsafe|delete|remove)", re.I)
-_ESCALATION_CHECK = ("(Before you finish: does my last message ask for something you cannot do yourself - a "
-                     "cancellation or change, a refund or waiver, a dispute or complaint, or a breakdown/accident/"
-                     "safety issue? If yes, call request_human_followup now, then give your final answer with the "
-                     "ticket number. If it was only a question, give the same final answer again.)")
+_ESCALATION_CHECK = ("(Internal check, not from the user: does the user's last message ask for something you "
+                     "cannot do yourself - a cancellation or change, a refund or waiver, a dispute or complaint, or "
+                     "a breakdown/accident/safety issue? If yes, call request_human_followup now, then give your "
+                     "final answer to the user with the ticket number. If it was only a question, reply 'NO'.)")
 HISTORY_MESSAGES = 12    # last 6 exchanges are replayed for context
 LOG_FILE = ROOT / "logs" / "conversations.jsonl"
 
@@ -46,8 +46,8 @@ _FINAL_JSON_RE = re.compile(r'\{\s*"answer"\s*:')
 
 
 def _final_from_text(text: str) -> dict:
-    """The model sometimes writes final_answer's arguments as plain text instead of calling the tool.
-    Use the last JSON object with an "answer" key if there is one; otherwise the text is the answer."""
+    """The model occasionally wraps its reply in a JSON object ({"answer": ...}).
+    Use the last such object if there is one; otherwise the text is the answer."""
     decoder = json.JSONDecoder()
     for m in reversed(list(_FINAL_JSON_RE.finditer(text))):
         try:
@@ -109,67 +109,61 @@ class Assistant:
         messages += self.session.history[-HISTORY_MESSAGES:]
         messages.append({"role": "user", "content": question})
         tools = tool_schemas(self.session.role)
-        final: dict | None = None
 
+        answer: str | None = None
+        before_check: str | None = None
         nudged = checked = False
         needs_check = bool(NEEDS_HUMAN_RE.search(question))
         for _ in range(MAX_STEPS):
             msg = chat(messages, tools=tools)
             calls = msg.tool_calls or []
-            if not calls:
-                if not (msg.content or "").strip() and not nudged:
-                    # The model occasionally returns an empty message after a tool result: ask once more.
-                    nudged = True
-                    messages.append({"role": "user", "content": "(Please give your answer to my last question now, "
-                                                                "using the tool results above, via final_answer.)"})
-                    continue
-                final = _final_from_text(msg.content or "")
-                if needs_check and not checked and not ev.escalations:
-                    checked, final = True, None
-                    messages += [{"role": "assistant", "content": msg.content},
-                                 {"role": "user", "content": _ESCALATION_CHECK}]
-                    continue
-                break
-            messages.append({"role": "assistant", "content": msg.content,
-                             "tool_calls": [{"id": c.id, "type": "function",
-                                             "function": {"name": c.function.name,
-                                                          "arguments": c.function.arguments}} for c in calls]})
-            final_call = next((c for c in calls if c.function.name == "final_answer"), None)
-            for c in calls:
-                if c.function.name == "final_answer":
-                    content = ("Read the other tool results first, then call final_answer again."
-                               if len(calls) > 1 else "Delivered.")
-                else:
-                    content = call_tool(c.function.name, c.function.arguments, self.conn, self.session, ev)
-                messages.append({"role": "tool", "tool_call_id": c.id, "content": content})
-            if final_call and len(calls) == 1:
-                try:
-                    final = json.loads(final_call.function.arguments or "{}")
-                except json.JSONDecodeError:
-                    final = {"answer": final_call.function.arguments, "escalate": False}
-                if needs_check and not checked and not ev.escalations:
-                    checked, final = True, None
-                    messages.append({"role": "user", "content": _ESCALATION_CHECK})
-                    continue
-                break
+            if calls:
+                messages.append({"role": "assistant", "content": msg.content,
+                                 "tool_calls": [{"id": c.id, "type": "function",
+                                                 "function": {"name": c.function.name,
+                                                              "arguments": c.function.arguments}} for c in calls]})
+                for c in calls:
+                    messages.append({"role": "tool", "tool_call_id": c.id,
+                                     "content": call_tool(c.function.name, c.function.arguments,
+                                                          self.conn, self.session, ev)})
+                continue
 
-        if not final or not str(final.get("answer", "")).strip():
-            final = {"answer": "I couldn't complete that request. Could you rephrase it, or give the booking ID? "
-                               f"You can also reach RideWise Support: {SUPPORT_CONTACT}.",
-                     "escalate": True, "escalation_reason": "Assistant could not complete the request"}
-        return self._build_response(final, ev)
+            text = _final_from_text(msg.content or "")["answer"].strip()
+            if not text:
+                # The hosted model occasionally returns an empty message (e.g. a dropped tool call).
+                if nudged:
+                    break
+                nudged = True
+                messages.append({"role": "user", "content": "(Please answer my last question now, using the "
+                                                            "tool results above.)"})
+                continue
+            if needs_check and not checked and not ev.escalations:
+                checked, before_check = True, text
+                messages += [{"role": "assistant", "content": msg.content},
+                             {"role": "user", "content": _ESCALATION_CHECK}]
+                continue
+            answer = text
+            break
 
-    def _build_response(self, final: dict, ev: Evidence) -> AssistantResponse:
+        if checked:
+            # The re-check only matters if it raised a ticket; its reply otherwise isn't meant for the user.
+            if not ev.escalations or not answer or answer.strip().upper().startswith("NO"):
+                answer = before_check + (self._ticket_note(ev) if ev.escalations else "")
+        if not answer:
+            answer = ("Sorry, I couldn't complete that request. Could you rephrase it, or include the booking ID? "
+                      f"You can also reach RideWise Support: {SUPPORT_CONTACT}.")
+        return self._build_response(answer, ev)
+
+    @staticmethod
+    def _ticket_note(ev: Evidence) -> str:
+        tickets = ", ".join(e["ticket"] for e in ev.escalations)
+        return f"\n\nI've passed this to a RideWise support agent (ticket {tickets}); nothing has been changed yet."
+
+    def _build_response(self, answer: str, ev: Evidence) -> AssistantResponse:
         sources: list[Source] = [Source(type="database", ref=r) for r in ev.records]
         sources += [Source(type="database", ref="SQL query", detail=s) for s in ev.sql]
-
-        # Policy sources: the passages the model cited, if they were really retrieved this turn;
-        # otherwise the top retrieved passages.
-        cited = [c for c in final.get("cited_policies") or [] if isinstance(c, str)]
-        hits = {h["citation"]: h for h in ev.policy_hits}
-        used = [hits[c] for c in hits if any(c.startswith(x.split(" (p.")[0]) or x.startswith(c.split(" (p.")[0])
-                                              for x in cited)] or ev.policy_hits[:3]
-        sources += [Source(type="policy", ref=h["citation"], detail=h["text"][:600]) for h in used]
+        # Policy sources: the strongest passages actually retrieved this turn (weak matches excluded).
+        sources += [Source(type="policy", ref=h["citation"], detail=h["text"][:600]) for h in ev.policy_hits[:4]]
 
         calcs = [Calculation(name=c.get("calculation", "calculation"), total=c.get("total"),
                              steps=c.get("steps", []), sources=c.get("sources", []), notes=c.get("notes", []))
@@ -179,12 +173,12 @@ class Assistant:
         sources += [Source(type="database", ref=f"escalation:{e['ticket']}", detail=e["reason"])
                     for e in ev.escalations]
         return AssistantResponse(
-            answer=clean_output(str(final["answer"]).strip(), self.session.role, self.session.customer_id),
+            answer=clean_output(answer, self.session.role, self.session.customer_id),
             sources=sources, sql=ev.sql, calculations=calcs,
             # Escalation is what actually happened (a ticket was queued), not what the model says.
-            escalate=bool(ev.escalations) or bool(final.get("escalation_reason")),
-            escalation_reason="; ".join(f"{e['ticket']} ({e['category']}): {e['reason']}" for e in ev.escalations)
-                              or final.get("escalation_reason") or None,
+            escalate=bool(ev.escalations),
+            escalation_reason="; ".join(f"{e['ticket']} ({e['category']}): {e['reason']}"
+                                        for e in ev.escalations) or None,
             tool_calls=[ToolCall(name=c.name, args=c.args, ok=c.ok, ms=c.ms, error=c.error) for c in ev.calls],
         )
 

@@ -239,19 +239,8 @@ TOOLS: dict[str, dict] = {
                       {"sql": {"type": "string"}}, ["sql"])},
 }
 
-FINAL_ANSWER = _fn(
-    "final_answer",
-    "Deliver the reply to the user. Always end your turn by calling this.",
-    {"answer": {"type": "string", "description": "The reply, in plain language (markdown allowed)."},
-     "cited_policies": {"type": "array", "items": {"type": "string"},
-                        "description": "Citations of the policy passages you relied on, copied exactly."},
-     "escalate": {"type": "boolean", "description": "True if you called request_human_followup this turn."}},
-    ["answer"],
-)
-
-
 def tool_schemas(role: str) -> list[dict]:
-    return [t["schema"] for t in TOOLS.values() if role in t["roles"]] + [FINAL_ANSWER]
+    return [t["schema"] for t in TOOLS.values() if role in t["roles"]]
 
 
 # ------------------------------------------------------------------ dispatch

@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
 from functools import lru_cache
 
 import numpy as np
@@ -25,6 +26,8 @@ RERANK_POOL = 15        # fused candidates the cross-encoder re-orders
 WEAK_MATCH = 0.5        # cosine below this: the policies probably don't cover the question
 ANNEX_REF_RE = re.compile(r"\bAnnexure\s+([A-Z0-9]+)\b")
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "").strip() or "jinaai/jina-reranker-v1-tiny-en"
+# Embedded Qdrant is a single-process store; the UI serves each browser session on its own thread.
+_SEARCH_LOCK = threading.Lock()
 
 
 @lru_cache(maxsize=1)
@@ -95,6 +98,11 @@ def search_policy(query: str, k: int = 5, doc_ids: list[str] | None = None,
     flt = models.Filter(must=[models.FieldCondition(key="doc_id", match=models.MatchAny(any=doc_ids))]) \
         if doc_ids else None
 
+    with _SEARCH_LOCK:
+        return _search(query, k, flt, qd, qs, client, rerank)
+
+
+def _search(query, k, flt, qd, qs, client, rerank) -> list[dict]:
     res = client.query_points(
         COLLECTION,
         prefetch=[

@@ -41,7 +41,8 @@ timelines, phone numbers, links, fees or promises.
 reason or numbers (short bullets or a small table). Use booking IDs and IST times. Give the support contact \
 only when the user needs it (escalations, or questions you can't answer). Never show raw JSON, tool names, \
 internal notes or labels like "Escalate:".
-10. Always finish your turn by calling final_answer.
+10. When you have what you need, reply to the user directly in plain text (markdown allowed). Mention the \
+policy document and section you relied on, e.g. (RW-POL-04, Annexure A).
 
 Support contact: {support}"""
 

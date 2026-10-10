@@ -165,7 +165,7 @@ def test_output_guard(customer):
     assert "【" not in out and "(RW-POL-04 §1.2)" in out
 
 
-def test_final_answer_written_as_text_is_parsed():
+def test_reply_wrapped_in_json_is_parsed():
     text = 'Here you go.\n{"answer": "Refund is ₹270.", "escalate": false}'
     assert _final_from_text(text)["answer"] == "Refund is ₹270."
     assert _final_from_text("Plain answer")["answer"] == "Plain answer"
