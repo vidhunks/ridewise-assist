@@ -50,5 +50,6 @@ This document outlines the core architectural choices, rejected alternatives, cu
 
 ## 4. What would you build next with one more week?
 
-1. **Semantic Query Caching Layer**: Implement a semantic cache (e.g., Redis / GPTCache) over incoming RAG and SQL queries to deliver sub-50ms responses for repeated policy inquiries and reduce token consumption.
-2. **Multi-Lingual Voice & Regional Chat Interface**: Add speech-to-text input and multi-lingual neural translation (Hindi, Kannada, Tamil) to assist ground staff at rental hubs and local customers.
+1. **Persistent Conversation History & Session Reloading**: Save customer and support agent chat histories into a permanent database so users can reload past conversations across sessions and devices.
+2. **Semantic Query Caching Layer**: Implement a semantic cache (e.g., Redis / GPTCache) over incoming RAG and SQL queries to deliver sub-50ms responses for repeated policy inquiries and reduce token consumption.
+3. **Multi-Lingual Voice & Regional Chat Interface**: Add speech-to-text input and multi-lingual neural translation (Hindi, Kannada, Tamil) to assist ground staff at rental hubs and local customers.
