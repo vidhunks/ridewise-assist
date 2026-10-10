@@ -1,0 +1,4 @@
+*.sha256 text eol=lf
+*.db binary
+*.pdf binary
+*.xlsx binary
