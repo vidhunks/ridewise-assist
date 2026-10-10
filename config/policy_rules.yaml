@@ -1,17 +1,67 @@
 # Business rules taken from the RideWise policy documents.
-# Every value cites its source clause. When a policy changes, edit this file only.
-# (Phase 2 adds refund slabs, late-fee and rental-charge rules here.)
+# Every value cites its source clause. When a policy changes, edit this file only:
+# scripts/build_derived.py and app/tools/calculators.py both read from here.
 
 timezone:
   # Policies are written in IST; the database stores UTC (data_dictionary.md).
   policy_utc_offset_minutes: 330   # IST = UTC+05:30
 
+gst_rate: 0.18   # RW-POL-01 §4.3, RW-POL-04 intro: rentals, penalties and fees attract 18% GST
+
 refund_policy_versions:
   # The version is decided by WHEN THE BOOKING WAS MADE (RW-POL-02 Scope, RW-POL-03 Scope).
   # A booking uses the latest version whose effective_from_ist <= booked_at (in IST).
+  # Slabs: the first slab whose min_hours_before <= (scheduled pickup - cancellation) applies.
   - id: v1
     document: RW-POL-02
+    clause: "§1.1"
     effective_from_ist: "2025-01-01 00:00:00"
+    slabs:
+      - {min_hours_before: 24, refund_pct: 100}
+      - {min_hours_before: 6,  refund_pct: 50}
+      - {min_hours_before: 0,  refund_pct: 0}
   - id: v2
     document: RW-POL-03
+    clause: "Annexure 1"
     effective_from_ist: "2026-07-01 00:00:00"
+    slabs:
+      - {min_hours_before: 48, refund_pct: 100}
+      - {min_hours_before: 12, refund_pct: 75}
+      - {min_hours_before: 2,  refund_pct: 25}
+      - {min_hours_before: 0,  refund_pct: 0}
+
+refund_special_cases:
+  cancelled_by_ridewise_pct: 100   # RW-POL-02 §2.1, RW-POL-03 §2.1, RW-POL-01 §2.2
+  no_show_pct: 0                   # RW-POL-02 §3.1, RW-POL-01 §7.2 (no extra fee either)
+  refund_gst_proportionally: true  # RW-POL-02 §1.2, RW-POL-03 §1.2, RW-POL-01 §4.3
+  processing: "Initiated within 3 working days of cancellation; credited to the original payment method within 5-7 working days (RW-POL-02 §4.1)"
+
+late_fee:
+  # RW-POL-04 §1.2: each late hour or part-hour = multiplier x vehicle hourly rate.
+  multiplier: 1.5
+  billing_unit_minutes: 60
+  # RW-POL-04 Annexure A: grace period by tier, inclusive ("up to and including").
+  # Beyond the grace period the FULL lateness is charged (RW-POL-04 §1.3).
+  grace_minutes_by_tier:
+    STANDARD: 0
+    SILVER: 0
+    GOLD: 30
+
+low_battery_fee:
+  # RW-POL-04 §2: EVs returned below 10% pay a flat fee per rental; exactly 10% is not below
+  # (RW-POL-05 Figure 2). Charged in addition to any late fee (RW-POL-04 §2.1).
+  below_pct: 10
+  fee: 150
+
+rental:
+  # RW-POL-01 §3.2 and §4.1: whole hours, minimum 2; each full 24h at the daily rate,
+  # remaining hours at the hourly rate but never more than one daily rate.
+  minimum_hours: 2
+  hours_per_day: 24
+
+deposit:
+  # RW-POL-01 §5.1. Deposits carry no GST and their returns are not recorded in the database (§5.2, §5.3).
+  BIKE:       {amount: 1000, min_rental_hours: 0}
+  EV_BIKE:    {amount: 1000, min_rental_hours: 0}
+  SCOOTER:    {amount: 500,  min_rental_hours: 24}
+  EV_SCOOTER: {amount: 500,  min_rental_hours: 24}

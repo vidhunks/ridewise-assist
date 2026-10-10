@@ -44,7 +44,8 @@ Constraints that shape everything: **3 hours**, **only the NeoStats LLM** (`gpt-
 | Failed and pending payments | 196 FAILED, 59 PENDING | "Paid" means `payment_status='SUCCESS'` only. A failed attempt is never charged (§4.4) |
 | Split payments | "Partial payment 1 of 3" and similar | Sum the SUCCESS BOOKING rows per booking |
 | Refunds are negative | REFUND amounts −35 … −3600 | Use `ABS()` in totals and explain the sign |
-| Late returns without a penalty row | 26 bookings returned late with no PENALTY row | Report what the data shows and what policy implies. Never invent a charge |
+| Late returns without a penalty row | 27 bookings returned late with no late-fee row | *Verified in Phase 2:* all 27 are GOLD customers ≤30 min late, which is free under the grace period. Not a data gap; the bot must explain the grace rule |
+| Pending charges and recent cancellations | 46 late fees PENDING; B-1709/B-1729 cancelled 1–2 days ago with no refund yet | Say "pending" or "refund not yet initiated (3 working days)"; don't call it a mismatch |
 | Duplicate customer names | 6 name pairs (e.g. "Anil Naidu" → CUST0159 and CUST0168) | Agent tool asks to disambiguate by ID |
 | Status-dependent NULLs | `actual_return_at` NULL for UPC/ONG/NSH/CNL; battery NULL for non-EVs | Explain these in the schema prompt |
 | Floating-point time diffs | `julianday` gives 3.99999 h | Use integer minutes: `CAST(ROUND((julianday(b)-julianday(a))*1440) AS INT)` |
