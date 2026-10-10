@@ -33,7 +33,21 @@ MAX_STEPS = 8            # LLM calls per user message
 NEEDS_HUMAN_RE = re.compile(
     r"\b(cancel|reschedul|modify|change my|extend|refund|waive|waiver|dispute|not my fault|overcharg|wrong(ly)? "
     r"charg|complain|unfair|broke ?down|breakdown|accident|crash|injur|stolen|theft|punctur|flat tyre|"
-    r"ran out|died|stuck|emergency|unsafe|delete|remove)", re.I)
+    r"ran out|died|stuck|emergency|unsafe|delete|remove|not paying|won'?t pay|refuse to pay|already there|"
+    r"pre-?existing|wasn'?t me|didn'?t do|charged twice|double charg)", re.I)
+# Answers that claim a hand-off happened. If no ticket was really created, that claim is false.
+CLAIMS_HANDOFF_RE = re.compile(
+    # "ticket #: RW-T-84273" - an uppercase ID containing a digit
+    r"((ticket|case|reference)\s*(number|no\.?|id)?[\s#:*]*(is\s*)?[\s#:*]*(?-i:[A-Z]{2,}[-‑A-Z0-9]*\d[-‑A-Z0-9]*)"
+    r"|\b(i|we)\s*('ve|\s+have)\s+(escalated|forwarded|raised|logged|created|passed|opened|flagged)"
+    r"|has been (escalated|forwarded|logged|raised|queued|flagged)"
+    r"|(agent|team|someone|specialist)s? will (follow up|contact|call|get back|reach out|review)"
+    r"|will be sent to)", re.I)
+_FALSE_HANDOFF_CHECK = ("(Internal check, not from the user: your reply says a ticket/hand-off was created or that "
+                        "someone will act, but you have not called request_human_followup, so no ticket exists. "
+                        "Either call request_human_followup now and then reply with the real ticket number, or "
+                        "rewrite your reply without claiming any ticket, hand-off or action. Never invent ticket "
+                        "numbers or promises.)")
 _ESCALATION_CHECK = ("(Internal check, not from the user: does the user's last message ask for something you "
                      "cannot do yourself - a cancellation or change, a refund or waiver, a dispute or complaint, or "
                      "a breakdown/accident/safety issue? If yes, call request_human_followup now, then give your "
@@ -60,9 +74,19 @@ def _final_from_text(text: str) -> dict:
 
 
 class Assistant:
+    """Create one per signed-in user. The UI only creates it after app.auth has verified the user;
+    scripts and tests construct it directly."""
+
+    @classmethod
+    def for_principal(cls, principal) -> "Assistant":
+        bot = cls(principal.role, principal.customer_id)
+        bot.username = principal.username
+        return bot
+
     def __init__(self, role: str, customer_id: str | None = None):
         if role not in ("customer", "agent"):
             raise ValueError("role must be 'customer' or 'agent'")
+        self.username: str | None = None
         self.conn = open_derived()
         self.profile = None
         if role == "customer":
@@ -112,7 +136,7 @@ class Assistant:
 
         answer: str | None = None
         before_check: str | None = None
-        nudged = checked = False
+        nudged = checked = claimed = False
         needs_check = bool(NEEDS_HUMAN_RE.search(question))
         for _ in range(MAX_STEPS):
             msg = chat(messages, tools=tools)
@@ -137,6 +161,12 @@ class Assistant:
                 messages.append({"role": "user", "content": "(Please answer my last question now, using the "
                                                             "tool results above.)"})
                 continue
+            if not checked and not ev.escalations and CLAIMS_HANDOFF_RE.search(text):
+                # Claimed a hand-off that never happened: make it create a real ticket or retract the claim.
+                checked, claimed = True, True
+                messages += [{"role": "assistant", "content": msg.content},
+                             {"role": "user", "content": _FALSE_HANDOFF_CHECK}]
+                continue
             if needs_check and not checked and not ev.escalations:
                 checked, before_check = True, text
                 messages += [{"role": "assistant", "content": msg.content},
@@ -145,13 +175,24 @@ class Assistant:
             answer = text
             break
 
-        if checked:
+        if checked and not claimed:
             # The re-check only matters if it raised a ticket; its reply otherwise isn't meant for the user.
             if not ev.escalations or not answer or answer.strip().upper().startswith("NO"):
                 answer = before_check + (self._ticket_note(ev) if ev.escalations else "")
+        if answer and not ev.escalations and CLAIMS_HANDOFF_RE.search(answer) and claimed:
+            # The model insists on a hand-off it never created: make the promise true rather than leave it false.
+            call_tool("request_human_followup", json.dumps({"reason": f"User said: {question[:300]}",
+                                                            "category": "other"}),
+                      self.conn, self.session, ev)
+            if ev.escalations:
+                answer += self._ticket_note(ev)
+        if answer and ev.escalations and not all(e["ticket"] in answer for e in ev.escalations):
+            answer += self._ticket_note(ev)
         if not answer:
             answer = ("Sorry, I couldn't complete that request. Could you rephrase it, or include the booking ID? "
                       f"You can also reach RideWise Support: {SUPPORT_CONTACT}.")
+        elif ev.escalations and any(e["category"] == "safety" for e in ev.escalations) and "4000 1234" not in answer:
+            answer += f"\n\nIf this is urgent, call RideWise Support now: {SUPPORT_CONTACT}."
         return self._build_response(answer, ev)
 
     @staticmethod
@@ -187,6 +228,7 @@ class Assistant:
             LOG_FILE.parent.mkdir(exist_ok=True)
             entry = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), "session": self.session_id,
                      "role": self.session.role, "customer_id": self.session.customer_id,
+                     "agent": self.username,
                      "question": mask_text(question), "answer": resp.answer, "status": resp.status,
                      "escalate": resp.escalate, "latency_ms": resp.latency_ms,
                      "tools": [t.model_dump() for t in resp.tool_calls], "sql": resp.sql}

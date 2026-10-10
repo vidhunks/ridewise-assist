@@ -328,12 +328,25 @@ def booking_charges_summary(conn: sqlite3.Connection, booking_id: str, now_utc: 
             if f["booking_status"] == "CMP" and abs(charged - batt.amount) > 0.01:
                 flags.append(f"Battery fee by policy is {rupees(batt.amount)} but {rupees(charged)} is recorded.")
     if f["damage_reports"]:
+        gst = conn.execute("""SELECT ROUND(COALESCE(SUM(gst_amount), 0), 2) FROM payments WHERE booking_id = ?
+                              AND payment_type = 'PENALTY' AND remarks LIKE 'Damage%' AND is_success = 1""",
+                           (booking_id,)).fetchone()[0]
         items["damage"] = {"claims": f["damage_claims"], "charged": f["damage_charged"],
-                           "rule": "Only CHARGED claims are payable; OPEN/DISPUTED are not charged until resolved; "
-                                   "WAIVED are never charged (RW-POL-04 §3.1)."}
+                           "charged_gst": gst, "charged_total": _r2(f["damage_charged"] + gst),
+                           "rule": "Only CHARGED claims are payable, at the assessed cost plus 18% GST like all "
+                                   "penalties; OPEN/DISPUTED are not charged until resolved; WAIVED are never charged "
+                                   "(RW-POL-04 intro and §3.1)."}
+    notes = []
+    if f["failed_payment_attempts"]:
+        notes.append(f"{f['failed_payment_attempts']} payment attempt(s) for this booking FAILED. A failed attempt "
+                     "is not a payment and is never charged (RW-POL-01 §4.4); only successful payments are counted. "
+                     "If the customer sees a debit for a failed attempt, it is reversed by their bank/payment provider.")
+    if f["pending_payments"]:
+        notes.append(f"{f['pending_payments']} payment(s) are still PENDING gateway confirmation.")
+    if f["deposit_paid"]:
+        notes.append("Deposit returns are handled by the payment gateway and are not recorded in RideWise "
+                     "records (RW-POL-01 §5.3).")
     return {"booking_id": booking_id, "status": f["status_label"], "policy_amounts": items,
             "recorded": {"rental_paid": f["rental_paid"], "penalties": recorded, "refunded": f["refunded"],
-                         "deposit_paid": f["deposit_paid"]},
-            "mismatches": flags,
-            "notes": ["Deposit returns are handled by the payment gateway and are not recorded in RideWise "
-                      "records (RW-POL-01 §5.3)."] if f["deposit_paid"] else []}
+                         "deposit_paid": f["deposit_paid"], "failed_payment_attempts": f["failed_payment_attempts"]},
+            "mismatches": flags, "notes": notes}

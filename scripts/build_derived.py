@@ -87,6 +87,11 @@ WITH pay AS (
         ROUND(-SUM(CASE WHEN payment_type='REFUND' AND is_success THEN amount ELSE 0 END), 2)    AS refunded,
         ROUND(-SUM(CASE WHEN payment_type='REFUND' AND is_success THEN gst_amount ELSE 0 END), 2) AS refunded_gst,
         ROUND(SUM(CASE WHEN payment_type='DEPOSIT' AND is_success THEN amount ELSE 0 END), 2)     AS deposit_paid,
+        -- Penalties by kind (the kind is only recorded in the free-text remarks)
+        ROUND(SUM(CASE WHEN payment_type='PENALTY' AND remarks LIKE '%late%' AND is_success THEN amount ELSE 0 END), 2) AS late_fee_paid,
+        ROUND(SUM(CASE WHEN payment_type='PENALTY' AND remarks LIKE '%late%' AND payment_status='PENDING' THEN amount ELSE 0 END), 2) AS late_fee_pending,
+        ROUND(SUM(CASE WHEN payment_type='PENALTY' AND remarks LIKE '%battery%' AND is_success THEN amount ELSE 0 END), 2) AS battery_fee_paid,
+        ROUND(SUM(CASE WHEN payment_type='PENALTY' AND remarks LIKE 'Damage%' AND is_success THEN amount ELSE 0 END), 2) AS damage_fee_paid,
         SUM(payment_status='FAILED')  AS failed_payment_attempts,
         SUM(payment_status='PENDING') AS pending_payments
     FROM payments GROUP BY booking_id),
@@ -118,6 +123,15 @@ SELECT
     COALESCE(p.penalties_paid, 0) AS penalties_paid, COALESCE(p.penalties_pending, 0) AS penalties_pending,
     COALESCE(p.refunded, 0) AS refunded, COALESCE(p.refunded_gst, 0) AS refunded_gst,
     COALESCE(p.deposit_paid, 0) AS deposit_paid,
+    COALESCE(p.late_fee_paid, 0) AS late_fee_paid, COALESCE(p.late_fee_pending, 0) AS late_fee_pending,
+    COALESCE(p.battery_fee_paid, 0) AS battery_fee_paid, COALESCE(p.damage_fee_paid, 0) AS damage_fee_paid,
+    CASE WHEN b.actual_return_at IS NULL OR b.actual_return_at <= b.scheduled_end THEN NULL
+         WHEN COALESCE(p.late_fee_paid, 0) > 0 THEN 'PAID'
+         WHEN COALESCE(p.late_fee_pending, 0) > 0 THEN 'PENDING'
+         WHEN c.customer_tier = 'GOLD'
+              AND {_minutes_between('b.actual_return_at', 'b.scheduled_end')} <= {int(rules['late_fee']['grace_minutes_by_tier'].get('GOLD', 0))}
+              THEN 'WAIVED_GRACE'
+         ELSE 'NOT_RECORDED' END AS late_fee_status,
     COALESCE(p.failed_payment_attempts, 0) AS failed_payment_attempts,
     COALESCE(p.pending_payments, 0) AS pending_payments,
     COALESCE(d.damage_reports, 0) AS damage_reports, COALESCE(d.damage_charged, 0) AS damage_charged,

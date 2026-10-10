@@ -171,6 +171,17 @@ def test_reply_wrapped_in_json_is_parsed():
     assert _final_from_text("Plain answer")["answer"] == "Plain answer"
 
 
+@pytest.mark.parametrize("text,claims", [
+    ("Ticket #: RW-T-84273", True), ("Your ticket number is **ESC-A6D4ABA8**", True),
+    ("I've forwarded your dispute", True), ("A support agent will follow up shortly", True),
+    ("Your request has been escalated", True), ("a safety team will be sent to you", True),
+    ("find the correct reference number", False), ("I can arrange for a support agent to follow up", False),
+    ("Would you like me to raise a ticket?", False), ("check booking B-0002 reference", False)])
+def test_false_handoff_detector(text, claims):
+    from app.agent.loop import CLAIMS_HANDOFF_RE
+    assert bool(CLAIMS_HANDOFF_RE.search(text)) == claims
+
+
 def test_large_tool_results_stay_valid_json():
     big = {"rows": [["x" * 50] * 5] * 400, "sql": "SELECT ...", "source": "sql"}
     out = json.loads(T._truncate(big))

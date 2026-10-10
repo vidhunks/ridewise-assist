@@ -9,8 +9,10 @@ import re
 from datetime import date
 
 EMAIL_RE = re.compile(r"\b([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]*@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b")
-# Indian mobile numbers: 10 digits starting 6-9, optionally prefixed +91 / 0.
-PHONE_RE = re.compile(r"(?<!\d)(?:\+?91[\s-]?|0)?([6-9]\d)\d{6}(\d{2})(?!\d)")
+# Indian mobile numbers: 10 digits starting 6-9, optionally prefixed +91 / 0, and possibly written with
+# single separators between digits ("98450 12345", "9845-01-2345", "98.45.01.23.45").
+_SEP = r"[\s.\-‐‑]?"
+PHONE_RE = re.compile(rf"(?<![\d\w])(?:\+?91{_SEP}|0)?([6-9]{_SEP}\d)(?:{_SEP}\d){{6}}{_SEP}(\d{_SEP}\d)(?!{_SEP}\d)")
 # Driving licence: 2-letter state code + 13 digits (e.g. KA0120160012345), spaces/dashes allowed.
 LICENSE_RE = re.compile(r"\b[A-Z]{2}[\s-]?\d{2}[\s-]?\d{4}[\s-]?\d{7}\b")
 
@@ -52,6 +54,7 @@ def age_on(dob: str | None, today: date) -> int | None:
 
 
 PUBLIC_EMAIL_DOMAINS = {"ridewise.example"}   # the company's own published contact addresses
+PUBLIC_PHONES = {"8040001234"}                 # RideWise Support, +91 80 4000 1234 (RW-POL-01 §9)
 
 
 def mask_text(text: str | None) -> str | None:
@@ -61,8 +64,13 @@ def mask_text(text: str | None) -> str | None:
     text = EMAIL_RE.sub(lambda m: m.group(0) if m.group(2).lower() in PUBLIC_EMAIL_DOMAINS
                         else f"{m.group(1)}***@{m.group(2)}", text)
     text = LICENSE_RE.sub(lambda m: mask_license(m.group(0)), text)
-    text = PHONE_RE.sub(lambda m: f"{m.group(1)}XXXXXX{m.group(2)}", text)
+    text = PHONE_RE.sub(lambda m: m.group(0) if _digits(m.group(0))[-10:] in PUBLIC_PHONES
+                        else f"{_digits(m.group(1))}XXXXXX{_digits(m.group(2))}", text)
     return text
+
+
+def _digits(s: str) -> str:
+    return re.sub(r"\D", "", s)
 
 
 def contains_pii(text: str | None) -> bool:
@@ -70,4 +78,5 @@ def contains_pii(text: str | None) -> bool:
     if not text:
         return False
     emails = [m for m in EMAIL_RE.finditer(text) if m.group(2).lower() not in PUBLIC_EMAIL_DOMAINS]
-    return bool(emails or PHONE_RE.search(text) or LICENSE_RE.search(text))
+    phones = [m for m in PHONE_RE.finditer(text) if _digits(m.group(0))[-10:] not in PUBLIC_PHONES]
+    return bool(emails or phones or LICENSE_RE.search(text))

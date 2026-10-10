@@ -37,8 +37,16 @@ def check_input(text: str) -> str | None:
     return None
 
 
+def normalise_typography(text: str) -> str:
+    """The model sometimes uses look-alike Unicode: 'B‑1581' (non-breaking hyphen) breaks copy-paste of IDs,
+    and narrow spaces inside numbers render as '1 64'."""
+    text = re.sub(r"[‐‑]", "-", text)
+    text = re.sub(r"(?<=\d)[   ](?=\d)", "", text)
+    return re.sub(r"[  ]", " ", text)
+
+
 def clean_output(text: str, role: str, customer_id: str | None) -> str:
-    text = mask_text(text) or ""
+    text = mask_text(normalise_typography(text)) or ""
     text = re.sub(r"【([^】]*)】", r" (\1)", text)      # model-style citation brackets -> plain text
     if role == "customer":
         own = (customer_id or "").upper()
