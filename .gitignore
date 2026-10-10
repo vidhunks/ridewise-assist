@@ -1,0 +1,29 @@
+# Secrets — never commit
+.env
+sample_open_ai_wrapper.py
+
+# Event-only material
+docs/Neostats Hackathon AI USECASE.pdf
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Generated at runtime
+data/derived.db
+logs/*
+!logs/.gitkeep
+.cache/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# SQLite side files (never commit)
+*.db-wal
+*.db-shm
