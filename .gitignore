@@ -27,3 +27,6 @@ Thumbs.db
 # SQLite side files (never commit)
 *.db-wal
 *.db-shm
+
+# Vector index (rebuilt automatically when the PDFs/transcriptions change)
+data/qdrant/

@@ -1,0 +1,78 @@
+# Human-verified transcriptions of images embedded in the policy PDFs.
+#
+# Why: four policy tables/figures exist only as scanned images. RapidOCR reads them, but with
+# errors that matter for money questions ("1oo%", "l0%", missing spaces, the ₹ sign dropped).
+# Each entry was produced from the OCR output and checked by hand against the PDF image.
+#
+# Keyed by the first 16 hex chars of the SHA-256 of the embedded image bytes. If a PDF is
+# replaced and an image changes, its hash will not match: the ingest pipeline then falls back to
+# raw OCR, marks the chunk `ocr_verified: false`, and logs a warning so a human re-verifies it.
+
+df9cc448dd590a3c:
+  source: 01_Rental_Agreement_and_Terms.pdf
+  page: 3
+  kind: signature
+  skip: true          # handwritten signature: no text content
+
+21795834bc22aef2:
+  source: 03_Cancellation_and_Refund_Policy_v2.pdf
+  page: 2
+  kind: table
+  section: "Annexure 1: Refund schedule (Version 2)"
+  text: |
+    Annexure 1: Refund schedule (Version 2)
+    Applies to bookings made on or after 1 July 2026, 00:00 IST.
+
+    | Cancellation before scheduled pickup | Refund of rental charge |
+    |---|---|
+    | 48 hours or more | 100% |
+    | 12 hours or more, but less than 48 hours | 75% |
+    | 2 hours or more, but less than 12 hours | 25% |
+    | Less than 2 hours | No refund (0%) |
+
+    Cancelled by RideWise: 100% refund in all cases.
+    No-show: no refund.
+    Approved: RideWise Policy Committee, 20 June 2026 (stamped APPROVED).
+
+237298a8f614f384:
+  source: 04_Late_Return_and_Damage_Penalty_Schedule.pdf
+  page: 3
+  kind: table
+  section: "Annexure A: Tier benefits"
+  text: |
+    Annexure A: Tier benefits. Late return grace period by customer tier.
+
+    | Customer tier | Grace period on late return |
+    |---|---|
+    | STANDARD | None |
+    | SILVER | None |
+    | GOLD | 30 minutes (up to and including 30 min) |
+
+    A GOLD return up to 30 minutes late: no late fee.
+    A GOLD return more than 30 minutes late: the full lateness is charged from the first minute, as for other tiers.
+    Approved: RideWise Policy Committee, 15 December 2024 (stamped APPROVED).
+
+5e641742a5f49dc1:
+  source: 05_EV_User_Guide_and_FAQ.pdf
+  page: 1
+  kind: figure
+  section: "Figure 1: How to charge a RideWise EV"
+  text: |
+    Figure 1: How to charge a RideWise EV.
+    1. Park at a RideWise hub or approved charger.
+    2. Switch off the vehicle.
+    3. Connect the RideWise charging cable.
+    4. Wait for the green light on the dashboard.
+    5. Unplug and stow the cable under the seat.
+
+01a71759bdafc161:
+  source: 05_EV_User_Guide_and_FAQ.pdf
+  page: 2
+  kind: figure
+  section: "Figure 2: Battery level at return and the charging fee"
+  text: |
+    Figure 2: Battery level at return and the charging fee (battery gauge from 0% to 100%).
+    - RED (below 10%): ₹150 low-battery charging fee applies.
+    - AMBER (10% - 19%): no fee, but please charge before your next trip.
+    - GREEN (20% and above): ideal return level.
+    Exactly 10% is not below 10%, so no fee is charged.

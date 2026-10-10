@@ -5,8 +5,8 @@ streamlit==1.65.0
 sqlglot==30.22.0
 PyYAML==6.0.3
 numpy==2.5.3
-rank-bm25==0.2.2
 pymupdf==1.28.2
 rapidocr-onnxruntime==1.4.4
-fastembed==0.9.0
+fastembed==0.8.1
 pytest==9.1.1
+qdrant-client==1.19.1
