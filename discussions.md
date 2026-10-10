@@ -17,8 +17,11 @@ This document outlines the core architectural choices, rejected alternatives, cu
 * **Why**: LLMs notoriously fail at exact temporal math, date/time timezone conversions (converting UTC database timestamps to IST policy cutoffs), and multi-condition percentage calculations. A deterministic calculator guarantees 100% mathematical precision, eliminates hallucinated fees, and cites exact policy clauses in the response metadata.
 
 ### 3. Isolated Derived Database (`ridewise.db`) with Pre-Aggregated Views & `sqlglot` AST Validation
-* **Decision**: We built a lightweight derived SQLite database (`data/derived/ridewise.db`) that attaches the raw dataset read-only. It exposes cleaned views like `v_booking_facts` (pre-calculating booking durations, late minutes, applied policy versions, and fee totals) and `v_customers` (normalizing city names like `BLR` $\rightarrow$ `Bengaluru` and masking PII). Every agent-generated SQL query is parsed and validated against an Abstract Syntax Tree (AST) via `sqlglot` before execution.
-* **Why**: Raw relational tables contain data inconsistencies, PII in free-text payment remarks, and complex join paths. Pre-aggregated views reduce text-to-SQL complexity, while `sqlglot` AST parsing paired with SQLite `mode=ro` guarantees that unauthorized data mutations, system table reads, or destructive queries are physically impossible.
+* **Decision**: We created a lightweight derived database (`data/derived/ridewise.db`) protected by strict SQL AST validation:
+  * **Isolated Read-Only DB**: Raw dataset attached with `mode=ro` and `PRAGMA query_only=ON`, ensuring the original database can never be modified or corrupted.
+  * **Pre-Cleaned Views**: Views like `v_booking_facts` and `v_customers` pre-clean city names (`BLR` $\rightarrow$ `Bengaluru`), mask phone/email PII, and pre-calculate late minutes, saving the LLM from writing complex multi-table joins.
+  * **`sqlglot` AST Guard**: Validates every generated query against an Abstract Syntax Tree (AST) before execution to strictly enforce `SELECT`-only queries and reject any write or schema-modifying commands.
+* **Why**: Prevents dirty data errors, simplifies LLM text-to-SQL generation, and physically blocks unauthorized data mutations or schema leaks.
 
 ---
 

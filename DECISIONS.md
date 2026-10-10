@@ -15,16 +15,15 @@ This document outlines the core architectural choices, rejected alternatives, cu
 * **Why**: LLMs notoriously fail at exact temporal math, date/time timezone conversions (converting UTC database timestamps to IST policy cutoffs), and multi-condition percentage calculations. A deterministic calculator guarantees 100% mathematical precision, eliminates hallucinated fees, and cites exact policy clauses in the response metadata.
 
 ### 3. Isolated Derived Database (`ridewise.db`) with Pre-Aggregated Views & `sqlglot` AST Validation
-* **Decision**: We built a lightweight derived SQLite database (`data/derived/ridewise.db`) that attaches the raw dataset read-only. It exposes cleaned views like `v_booking_facts` (pre-calculating booking durations, late minutes, applied policy versions, and fee totals) and `v_customers` (normalizing city names like `BLR` $\rightarrow$ `Bengaluru` and masking PII). Every agent-generated SQL query is parsed and validated against an Abstract Syntax Tree (AST) via `sqlglot` before execution.
-* **Why**: Raw relational tables contain data inconsistencies, PII in free-text payment remarks, and complex join paths. Pre-aggregated views reduce text-to-SQL complexity, while `sqlglot` AST parsing paired with SQLite `mode=ro` guarantees that unauthorized data mutations, system table reads, or destructive queries are physically impossible.
+* **Decision**: We created a lightweight derived database (`data/derived/ridewise.db`) protected by strict SQL AST validation:
+  * **Isolated Read-Only DB**: Raw dataset attached with `mode=ro` and `PRAGMA query_only=ON`, ensuring the original database can never be modified or corrupted.
+  * **Pre-Cleaned Views**: Views like `v_booking_facts` and `v_customers` pre-clean city names (`BLR` $\rightarrow$ `Bengaluru`), mask phone/email PII, and pre-calculate late minutes, saving the LLM from writing complex multi-table joins.
+  * **`sqlglot` AST Guard**: Validates every generated query against an Abstract Syntax Tree (AST) before execution to strictly enforce `SELECT`-only queries and reject any write or schema-modifying commands.
+* **Why**: Prevents dirty data errors, simplifies LLM text-to-SQL generation, and physically blocks unauthorized data mutations or schema leaks.
 
 ---
 
 ## 2. Which alternatives did you consider and reject?
-
-### ❌ Human-in-the-Loop (HITL) Sandbox for Database Writes & Deletes vs. ✅ Enforced Read-Only DB Architecture
-* **Rejected**: A Human-in-the-Loop approval system allowing the LLM to propose `INSERT`, `UPDATE`, or `DELETE` SQL queries requiring human support agent authorization.
-* **Why**: We evaluated the hackathon problem statement and confirmed that database mutations are strictly forbidden (`mode=ro`). Nothing in the user stories requires database writes. Instead of building a complex write/delete approval workflow, we enforced a strict read-only database architecture (`PRAGMA query_only=ON` + AST validation) and routed all customer disputes, refund requests, and waivers to an external human escalation queue (`data/escalations.jsonl`).
 
 ### ❌ Separate Intent Router / Classifier vs. ✅ Integrated ReAct Agent Loop
 * **Rejected**: A standalone classifier/router (e.g., regex or zero-shot LLM router) to direct queries exclusively to *either* the SQL database *or* the RAG document retriever.
@@ -34,6 +33,9 @@ This document outlines the core architectural choices, rejected alternatives, cu
 * **Rejected**: Relying solely on basic text extractors (like `pypdf` or standard PDF text parsers) for policy indexing.
 * **Why**: Critical business policy tables—such as v2 cancellation refund percentage slabs, GOLD member grace period rules, and EV battery charge bands in `docs/policies/`—exist as embedded raster images and scanned figures. Standard text extractors skip these images entirely. We implemented a hybrid ingestion pipeline using **PyMuPDF** for text and **RapidOCR** for scanned table figures, indexing chunks via **BM25** (sparse) + **FastEmbed/Qdrant** (dense) merged with **Reciprocal Rank Fusion (RRF)**.
 
+### ❌ Human-in-the-Loop (HITL) Sandbox for Database Writes & Deletes vs. ✅ Enforced Read-Only DB Architecture
+* **Rejected**: A Human-in-the-Loop approval system allowing the LLM to propose `INSERT`, `UPDATE`, or `DELETE` SQL queries requiring human support agent authorization.
+* **Why**: We evaluated the hackathon problem statement and confirmed that database mutations are strictly forbidden (`mode=ro`). Nothing in the user stories requires database writes. Instead of building a complex write/delete approval workflow, we enforced a strict read-only database architecture (`PRAGMA query_only=ON` + AST validation) and routed all customer disputes, refund requests, and waivers to an external human escalation queue (`data/escalations.jsonl`).
 
 ---
 
