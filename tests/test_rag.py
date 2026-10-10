@@ -72,6 +72,7 @@ def test_faq_is_one_chunk_per_question(chunks):
 
 
 def test_unverified_image_falls_back_to_ocr_and_is_flagged(monkeypatch):
+    pytest.importorskip("rapidocr_onnxruntime", reason="optional OCR (requirements-ocr.txt) not installed")
     monkeypatch.setattr(ingest, "_load_transcriptions", lambda: {})
     pdf = ingest.POLICY_DIR / "03_Cancellation_and_Refund_Policy_v2.pdf"
     annex = next(c for c in ingest.build_chunks(pdf) if c.chunk_type == "image")

@@ -93,7 +93,12 @@ def _ocr(image_bytes: bytes) -> str:
     """Raw OCR fallback: rebuild lines by grouping boxes with similar y, left to right."""
     global _ocr_engine
     if _ocr_engine is None:
-        from rapidocr_onnxruntime import RapidOCR
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+        except ImportError:
+            log.warning("An image has no verified transcription and OCR is not installed "
+                        "(pip install -r requirements-ocr.txt); the image is skipped.")
+            return ""
         _ocr_engine = RapidOCR()
     result, _ = _ocr_engine(image_bytes)
     rows: list[list] = []

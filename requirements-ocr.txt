@@ -1,0 +1,4 @@
+# Optional: OCR fallback for policy-PDF images that have no verified transcription
+# (data/ocr_verified/transcriptions.yaml). Not needed for the provided documents.
+# RapidOCR supports Python 3.6 - 3.12.
+rapidocr-onnxruntime==1.4.4
