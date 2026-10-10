@@ -1,0 +1,17 @@
+# Business rules taken from the RideWise policy documents.
+# Every value cites its source clause. When a policy changes, edit this file only.
+# (Phase 2 adds refund slabs, late-fee and rental-charge rules here.)
+
+timezone:
+  # Policies are written in IST; the database stores UTC (data_dictionary.md).
+  policy_utc_offset_minutes: 330   # IST = UTC+05:30
+
+refund_policy_versions:
+  # The version is decided by WHEN THE BOOKING WAS MADE (RW-POL-02 Scope, RW-POL-03 Scope).
+  # A booking uses the latest version whose effective_from_ist <= booked_at (in IST).
+  - id: v1
+    document: RW-POL-02
+    effective_from_ist: "2025-01-01 00:00:00"
+  - id: v2
+    document: RW-POL-03
+    effective_from_ist: "2026-07-01 00:00:00"
