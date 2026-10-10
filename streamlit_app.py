@@ -106,9 +106,7 @@ with st.sidebar:
             sign_out()
             st.rerun()
 
-    st.divider()
-    st.caption(f"Ready · {status}")
-    st.caption(f"Need a person? {SUPPORT_CONTACT}")
+
 
 
 if st.session_state.get("bot") is None:
